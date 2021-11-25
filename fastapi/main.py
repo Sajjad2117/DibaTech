@@ -1,13 +1,15 @@
 import json
 from datetime import timedelta, datetime
-from fastapi import FastAPI, Query, Depends, HTTPException
+from fastapi import FastAPI, Query, Depends, HTTPException, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError, validator
 from models import Product, User
 from mongoengine import connect
 from mongoengine.queryset.visitor import Q
 from passlib.context import CryptContext
 from jose import jwt
+from fastapi_pagination import Page, add_pagination, paginate, LimitOffsetPage
+import schemas
 
 app = FastAPI()
 connect(db="dibatech", host="localhost", port=27017)
@@ -18,10 +20,11 @@ def home():
     return {"message": "Welcome to DibaTech"}
 
 
-@app.get("/get_all_products")
+@app.get("/get_all_products", response_model=Page[schemas.Product])
+@app.get("/get_all_products/limit-offset", response_model=LimitOffsetPage[schemas.Product])
 def get_all_products():
     products = json.loads(Product.objects().to_json())
-    return {"products": products}
+    return paginate(products)
 
 
 @app.get("/find_products")
@@ -49,6 +52,11 @@ def add_product(product: NewProduct):
 class NewUser(BaseModel):
     username: str
     password: str
+
+    @validator('password')
+    def password_alphanumeric(cls, v):
+        assert v.isalnum(), 'must be alphanumeric'
+        return v
 
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -104,6 +112,31 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()):
         raise HTTPException(status_code=400, detail="Incorrect username or password")
 
 
-@app.post("/edit-profile")
-def edit_profile(token: str = Depends(oauth2_scheme)):
-    return {"token": token}
+class Profile(BaseModel):
+    username: str
+    first_name: str
+    last_name: str
+    national_code: int
+
+    @validator("national_code")
+    def national_code_must_valid(cls, value):
+        if len(str(value)) != 10:
+            raise ValueError("Sorry: A valid national_code is required")
+        return value
+
+
+@app.post("/profile/")
+def create_profile(new_profile: Profile):
+    return new_profile
+
+
+@app.put("/edit-profile/{profile_id}")
+async def edit_profile(profile_id: int, profile: Profile = Body(..., embed=True)):
+    results = {
+        "profile_id": profile_id,
+        "profile": profile
+    }
+    return results
+
+
+add_pagination(app)

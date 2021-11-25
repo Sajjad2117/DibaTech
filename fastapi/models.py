@@ -8,6 +8,9 @@ class Product(Document):
 
 
 class User(Document):
-    username = StringField(max_length=32)
+    username = StringField(max_length=32, min_length=4, unique=True)
     password = StringField()
+
+
+
 
